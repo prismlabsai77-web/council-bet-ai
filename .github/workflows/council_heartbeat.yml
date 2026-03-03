@@ -1,0 +1,31 @@
+name: CouncilCore AI Heartbeat
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # 6:00 AM UTC daily
+  workflow_dispatch: # Allows manual testing
+
+jobs:
+  run-council:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install google-generativeai supabase openai groq aiohttp
+          
+      - name: Run Council Script
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SPORTS_API_KEY: ${{ secrets.SPORTS_API_KEY }}
+        run: python council_script.py
