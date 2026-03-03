@@ -1,51 +1,80 @@
 import asyncio
 import os
-from supabase import create_client
-import google.generativeai as genai
-from groq import Groq
+import json
+from google import genai
+from google.genai import types
+from groq import AsyncGroq
 from openai import AsyncOpenAI
+from supabase import create_client
 
-# Initialize Supabase
+# Initialize Clients
 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_KEY"))
 
-async def get_gemini_analysis(fixture):
-    # Gemini 2.0/3 Flash with Search Grounding
-    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-    model = genai.GenerativeModel('gemini-2.0-flash') # or gemini-3-flash-preview
-    prompt = f"Using search, find injuries and weather for {fixture}. Return a betting pick."
-    response = model.generate_content(prompt, tools=[{'google_search': {}}])
-    return response.text
+async def get_gemini_2_flash(fixture):
+    """Gemini 2.0 with Search Grounding for real-time news."""
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    prompt = f"Find today's injuries and weather for {fixture}. Predict winner."
+    # 2026 Search Grounding Config
+    res = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            tools=[types.Tool(google_search=types.GoogleSearch())]
+        )
+    )
+    return res.text
 
-async def get_groq_glm(fixture):
-    client = AsyncOpenAI(base_url="https://api.groq.com/openai/v1", api_key=os.getenv("GROQ_API_KEY"))
-    res = await client.chat.completions.create(model="glm-4.7-flash", messages=[{"role": "user", "content": f"Betting pick for {fixture}?"}])
+async def get_groq_qwen3(data):
+    """Qwen 3 32B on Groq for sub-second analysis."""
+    client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+    res = await client.chat.completions.create(
+        model="qwen-3-32b", 
+        messages=[{"role": "user", "content": f"Analyze stats: {data}. Return JSON prediction."}]
+    )
     return res.choices[0].message.content
 
-# ... (Repeat similar async functions for Qwen/HF and Kimi/OpenRouter)
+async def get_openrouter_glm45(data):
+    """GLM 4.5 Air for agentic reasoning."""
+    client = AsyncOpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.getenv("OPENROUTER_API_KEY"))
+    res = await client.chat.completions.create(
+        model="z-ai/glm-4.5-air:free",
+        messages=[{"role": "user", "content": f"Reason about {data}. Prediction?"}]
+    )
+    return res.choices[0].message.content
+
+async def get_hf_deepseek_r1(data):
+    """DeepSeek R1 on HF for logical auditing."""
+    client = AsyncOpenAI(base_url="https://api-inference.huggingface.co/v1", api_key=os.getenv("HF_TOKEN"))
+    res = await client.chat.completions.create(model="deepseek-ai/DeepSeek-R1", messages=[{"role": "user", "content": data}])
+    return res.choices[0].message.content
+
+async def get_hf_kimi_k2(data):
+    """Kimi K2 Thinking on HF for deep simulation."""
+    client = AsyncOpenAI(base_url="https://api-inference.huggingface.co/v1", api_key=os.getenv("HF_TOKEN"))
+    res = await client.chat.completions.create(model="moonshotai/Kimi-K2-Thinking", messages=[{"role": "user", "content": data}])
+    return res.choices[0].message.content
 
 async def main():
-    # 1. Ping Sports API for today's games (Simplified here)
-    fixtures = ["Arsenal vs Man City", "Lakers vs Celtics"]
-    
-    for game in fixtures:
-        # 2. Fire the Council Debate concurrently
-        results = await asyncio.gather(
-            get_gemini_analysis(game),
-            get_groq_glm(game),
-            # get_qwen_analysis(game),
-            # get_kimi_analysis(game)
-        )
-        
-        # 3. Simple Consensus Logic
-        # (Compare strings or ask a 5th 'Master Model' to pick the winner from these 4)
-        
-        # 4. Save to Supabase
-        supabase.table("council_picks").insert({
-            "game_id": game,
-            "gemini_output": results[0],
-            "glm_output": results[1],
-            "consensus_pick": "Calculated Result"
-        }).execute()
+    game = "Arsenal vs Man City"
+    # Execute all 5 models in parallel
+    results = await asyncio.gather(
+        get_gemini_2_flash(game),
+        get_groq_qwen3(game),
+        get_openrouter_glm45(game),
+        get_hf_deepseek_r1(game),
+        get_hf_kimi_k2(game)
+    )
+
+    # Insert into Supabase
+    supabase.table("council_picks").insert({
+        "game_id": game,
+        "gemini_2_0": results[0],
+        "qwen_3": results[1],
+        "glm_4_5": results[2],
+        "deepseek_r1": results[3],
+        "kimi_k2": results[4]
+    }).execute()
+    print("🚀 All 5 Council Members have voted!")
 
 if __name__ == "__main__":
     asyncio.run(main())
