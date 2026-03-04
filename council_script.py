@@ -33,7 +33,7 @@ async def get_gemini_2_5_flash(context):
         client = genai.Client(api_key=GEMINI_KEY)
         response = client.models.generate_content(
             model="gemini-2.0-flash", 
-            contents=f"Provide a betting prediction (1, X, or 2) and short reason for: {context}"
+            contents=f"Analyze this football match and provide a betting prediction (1, X, or 2) with a brief reason: {context}"
         )
         return response.text
     except Exception as e: return f"Gemini Error: {e}"
@@ -41,10 +41,9 @@ async def get_gemini_2_5_flash(context):
 async def get_groq_qwen3(match_name):
     try:
         client = AsyncGroq(api_key=GROQ_KEY)
-        # Using Qwen 2.5 32B as the stable Groq version
         chat = await client.chat.completions.create(
             model="qwen-2.5-32b",
-            messages=[{"role": "user", "content": f"Predict the winner for {match_name}. Be concise."}]
+            messages=[{"role": "user", "content": f"Predict the outcome for {match_name}. Be concise."}]
         )
         return chat.choices[0].message.content
     except Exception as e: return f"Groq Error: {e}"
@@ -56,30 +55,28 @@ async def get_openrouter_glm45(match_name):
             api_key=OPENROUTER_KEY,
         )
         response = await client.chat.completions.create(
-            model="zhipuai/glm-4-9b-chat", # GLM 4 via OpenRouter
-            messages=[{"role": "user", "content": f"Who wins: {match_name}?"}]
+            model="zhipuai/glm-4-9b-chat",
+            messages=[{"role": "user", "content": f"Provide a betting analysis for {match_name}."}]
         )
         return response.choices[0].message.content
     except Exception as e: return f"OpenRouter Error: {e}"
 
 async def get_hf_deepseek_r1(match_name):
     try:
-        # DeepSeek R1 via Hugging Face Inference API
         API_URL = "https://api-inference.huggingface.co/models/deepseek-ai/DeepSeek-R1"
         headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-        payload = {"inputs": f"Analyze this match and pick a winner: {match_name}"}
-        response = requests.post(API_URL, headers=headers, json=payload, timeout=10)
-        return response.json()[0]['generated_text'] if response.status_code == 200 else "HF DeepSeek Busy"
+        payload = {"inputs": f"Think step by step: Who wins {match_name}?"}
+        response = requests.post(API_URL, headers=headers, json=payload, timeout=15)
+        return response.json()[0]['generated_text'] if response.status_code == 200 else "DeepSeek Busy"
     except Exception as e: return f"DeepSeek Error: {e}"
 
 async def get_hf_kimi_k2(match_name):
     try:
-        # Kimi K2 via Hugging Face Inference API
         API_URL = "https://api-inference.huggingface.co/models/moonshotai/Kimi-K2-Instruct"
         headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-        payload = {"inputs": f"Predict result for {match_name}"}
-        response = requests.post(API_URL, headers=headers, json=payload, timeout=10)
-        return response.json()[0]['generated_text'] if response.status_code == 200 else "HF Kimi Busy"
+        payload = {"inputs": f"Analyze {match_name} and pick a winner."}
+        response = requests.post(API_URL, headers=headers, json=payload, timeout=15)
+        return response.json()[0]['generated_text'] if response.status_code == 200 else "Kimi Busy"
     except Exception as e: return f"Kimi Error: {e}"
 
 # =========================
@@ -100,11 +97,14 @@ def get_combined_fixtures():
                 for p in f.get("participants", []):
                     if p.get("meta", {}).get("location") == "home": home = p.get("name")
                     elif p.get("meta", {}).get("location") == "away": away = p.get("name")
+                
                 name = f"{home} vs {away}"
                 unified_data[name] = {
-                    "home": home, "away": away, 
+                    "home": home, 
+                    "away": away, 
+                    "kickoff": f.get("starting_at"), # Sportmonks V3 field
                     "league": f.get("league", {}).get("name", "Unknown"),
-                    "context": f"League: {f.get('league', {}).get('name')} | Match: {name}"
+                    "context": f"League: {f.get('league', {}).get('name')} | Kickoff: {f.get('starting_at')}"
                 }
     except Exception as e: print(f"⚠️ Sportmonks failed: {e}")
 
@@ -118,8 +118,11 @@ def get_combined_fixtures():
                 name = f"{h} vs {a}"
                 if name not in unified_data:
                     unified_data[name] = {
-                        "home": h, "away": a, "league": f['league']['name'],
-                        "context": f"League: {f['league']['name']} | Match: {name}"
+                        "home": h, 
+                        "away": a, 
+                        "kickoff": f['fixture'].get('date'), # API-Football field
+                        "league": f['league']['name'],
+                        "context": f"League: {f['league']['name']} | Kickoff: {f['fixture'].get('date')}"
                     }
     except Exception as e: print(f"⚠️ API-Football failed: {e}")
 
@@ -134,18 +137,19 @@ async def main():
         print("🛑 No matches found.")
         return
 
-    # Process first 5 matches to test (Remove slice [:5] to process all)
-    for name, data in list(fixtures.items())[:5]:
+    # To test, we process the first 10 matches
+    for name, data in list(fixtures.items())[:10]:
         print(f"🗳️ Council debating: {name}")
 
         try:
-            # 1. Update/Insert raw fixture with team names to satisfy NOT NULL constraints
+            # 1. Update/Insert raw fixture including kickoff_time
             supabase.table("raw_fixtures").upsert({
                 "game_id": name,
                 "sport_type": "football",
                 "home_team": data['home'],
                 "away_team": data['away'],
-                "league_name": data['league']
+                "league_name": data['league'],
+                "kickoff_time": data['kickoff'] # Fixed the null error
             }).execute()
 
             # 2. Run all 5 AI models in parallel
@@ -158,7 +162,7 @@ async def main():
                 return_exceptions=True
             )
 
-            # 3. Store the Council results
+            # 3. Store the Council results in picks table
             payload = {
                 "game_id": name,
                 "sport_type": "football",
@@ -170,12 +174,12 @@ async def main():
             }
 
             supabase.table("council_picks").insert(payload).execute()
-            print(f"✅ Pick recorded for {name}")
+            print(f"✅ Full council picks stored for {name}")
 
         except Exception as e:
             print(f"⚠️ Error processing {name}: {e}")
 
-    print("🎯 All matches processed.")
+    print("🎯 Process complete.")
 
 if __name__ == "__main__":
     asyncio.run(main())
