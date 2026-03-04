@@ -1,4 +1,5 @@
 name: CouncilCore AI 2026 Heartbeat
+
 on:
   schedule:
     - cron: '0 6 * * *'
@@ -7,14 +8,18 @@ on:
 jobs:
   run-council:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Install dependencies
         run: pip install google-genai supabase openai groq requests aiohttp
+
       - name: Run Council
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -23,4 +28,9 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+          # 🔥 THESE WERE MISSING
+          SPORTMONKS_API_KEY: ${{ secrets.SPORTMONKS_API_KEY }}
+          SPORTS_API_KEY: ${{ secrets.SPORTS_API_KEY }}
+
         run: python council_script.py
